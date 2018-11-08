@@ -1,0 +1,16 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "robot_box"
+train:
+- "2018-10-30-23-20-30"
+- "2018-11-07-16-02-24"
+- "2018-11-07-16-18-28"
+- "2018-11-07-17-10-16"
+- "2018-11-07-17-29-42"
+- "2018-11-07-17-29-43"
+- "2018-11-07-18-38-39"
+- "2018-11-07-18-49-32"
+test:
+- "2018-10-30-23-20-30"
+- "2018-11-07-18-49-32"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/robot_box_not_yet_configure.yaml"
