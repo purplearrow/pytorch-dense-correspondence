@@ -1106,7 +1106,7 @@ class DenseCorrespondenceEvaluation(object):
 
         rgb_b, _, mask_b, _ = dataset.get_rgbd_mask_pose(scene_name, img_b_idx)
 
-        DenseCorrespondenceEvaluation.single_image_pair_qualitative_analysis(dcn, dataset, rgb_a, rgb_b, mask_a, mask_b, num_matches)
+        DenseCorrespondenceEvaluation.single_image_pair_qualitative_analysis(dcn, dataset, rgb_a, rgb_b, mask_a, mask_b, num_matches, scene_name, img_b_idx)
 
     @staticmethod
     def single_cross_scene_image_pair_qualitative_analysis(dcn, dataset, scene_name_a,
@@ -1133,12 +1133,12 @@ class DenseCorrespondenceEvaluation(object):
 
         rgb_b, _, mask_b, _ = dataset.get_rgbd_mask_pose(scene_name_b, img_b_idx)
 
-        DenseCorrespondenceEvaluation.single_image_pair_qualitative_analysis(dcn, dataset, rgb_a, rgb_b, mask_a, mask_b, num_matches)
+        DenseCorrespondenceEvaluation.single_image_pair_qualitative_analysis(dcn, dataset, rgb_a, rgb_b, mask_a, mask_b, num_matches, scene_name, img_b_idx)
         return rgb_a, rgb_b
 
     @staticmethod
     def single_image_pair_qualitative_analysis(dcn, dataset, rgb_a, rgb_b, mask_a, mask_b,
-                                               num_matches):
+                                               num_matches, scene_name, img_b_idx):
         """
         Computes qualtitative assessment of DCN performance for a pair of
         images
@@ -1167,7 +1167,10 @@ class DenseCorrespondenceEvaluation(object):
 
         # these are Variables holding torch.FloatTensors, first grab the data, then convert to numpy
         res_a = dcn.forward_single_image_tensor(rgb_a_tensor).data.cpu().numpy()
-        res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        #load here
+        #res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        res_b = DenseCorrespondenceEvaluation.load_pre_computed_feature_map(scene_name, img_b_idx)
+        print (scene_name)
 
 
         # sample points on img_a. Compute best matches on img_b
@@ -1630,10 +1633,16 @@ class DenseCorrespondenceEvaluation(object):
         for _ in range(5):
             scene_name = dataset.get_random_scene_name()
             img_a_idx = dataset.get_random_image_index(scene_name)
+            while img_a_idx == 1:
+                img_a_idx = dataset.get_random_image_index(scene_name)
+
             pose_a = dataset.get_pose_from_scene_name_and_idx(scene_name, img_a_idx)
-            img_b_idx = dataset.get_img_idx_with_different_pose(scene_name, pose_a, num_attempts=100)
-            if img_b_idx is None:
-                continue
+            img_b_idx = 1
+            while img_b_idx == 1:
+                img_b_idx = dataset.get_img_idx_with_different_pose(scene_name, pose_a, num_attempts=100)
+                if img_b_idx is None:
+                    img_b_idx = 1
+                    continue
             img_pairs.append([img_a_idx, img_b_idx])
             scene_names.append(scene_name)
 
