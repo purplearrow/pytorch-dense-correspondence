@@ -201,11 +201,16 @@ class DenseCorrespondenceEvaluation(object):
         :rtype:
         """
         img_a_idx = dataset.get_random_image_index(scene_name)
+        while img_a_idx == 1:
+            img_a_idx = dataset.get_random_image_index(scene_name)
+
         pose_a = dataset.get_pose_from_scene_name_and_idx(scene_name, img_a_idx)
         pos_a = pose_a[0:3, 3]
 
         for i in xrange(0, max_num_attempts):
             img_b_idx = dataset.get_random_image_index(scene_name)
+            if img_b_idx == 1:
+                continue
             pose_b = dataset.get_pose_from_scene_name_and_idx(scene_name, img_b_idx)
             pos_b = pose_b[0:3, 3]
 
@@ -723,6 +728,18 @@ class DenseCorrespondenceEvaluation(object):
         return dataframe_list
 
     @staticmethod
+    def load_pre_computed_feature_map(scene_name, img_b_idx):
+        feature_map_name = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+                                    'aggregation_output', scene_name, 'final','npy',
+                                    'final_' + utils.getPaddedString(img_b_idx, width=SpartanDataset.PADDED_STRING_WIDTH) + '_feature.npy')
+        #2 frames, next
+        #feature_map_name = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+        #                            'aggregation_output', scene_name, 'rgb-rgbn','npy',
+        #                            'final_' + utils.getPaddedString(img_b_idx, width=SpartanDataset.PADDED_STRING_WIDTH) + '_feature.npy')
+        #print (feature_map_name)
+        return np.load(feature_map_name)
+
+    @staticmethod
     def single_same_scene_image_pair_quantitative_analysis(dcn, dataset, scene_name,
                                                 img_a_idx, img_b_idx,
                                                 camera_intrinsics_matrix=None,
@@ -762,7 +779,9 @@ class DenseCorrespondenceEvaluation(object):
 
         # these are Variables holding torch.FloatTensors, first grab the data, then convert to numpy
         res_a = dcn.forward_single_image_tensor(rgb_a_tensor).data.cpu().numpy()
-        res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        #res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        # use pre-computed instead
+        res_b = DenseCorrespondenceEvaluation.load_pre_computed_feature_map(scene_name, img_b_idx)
 
         if camera_intrinsics_matrix is None:
             camera_intrinsics = dataset.get_camera_intrinsics(scene_name)
