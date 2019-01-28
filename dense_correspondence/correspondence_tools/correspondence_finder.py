@@ -328,7 +328,7 @@ def create_non_correspondences(uv_b_matches, img_b_shape, num_non_matches_per_ma
 # Optionally, uv_a specifies the pixels in img_a for which to find matches
 # If uv_a is not set, then random correspondences are attempted to be found
 def batch_find_pixel_correspondences(img_a_depth, img_a_pose, img_b_depth, img_b_pose, 
-                                        uv_a=None, num_attempts=20, device='CPU', img_a_mask=None, K=None):
+                                        uv_a=None, num_attempts=20, device='CPU', img_a_mask=None, K=None, use_option_a=True):
     """
     Computes pixel correspondences in batch
 
@@ -389,17 +389,22 @@ def batch_find_pixel_correspondences(img_a_depth, img_a_pose, img_b_depth, img_b
         uv_a_vec_flattened = uv_a_vec[1]*image_width+uv_a_vec[0]
     else:
         img_a_mask = torch.from_numpy(img_a_mask).type(dtype_float)  
-        
+
+        uv_a_vec = None        
         # Option A: This next line samples from img mask
-        uv_a_vec = random_sample_from_masked_image_torch(img_a_mask, num_samples=num_attempts)
-        if uv_a_vec[0] is None:
-            return (None, None)
+        if use_option_a:
+            #raise NameError('Do you want to use option A?')
+            uv_a_vec = random_sample_from_masked_image_torch(img_a_mask, num_samples=num_attempts)
+            if uv_a_vec[0] is None:
+                return (None, None)
         
         # Option B: These 4 lines grab ALL from img mask
-        # mask_a = img_a_mask.squeeze(0)
-        # mask_a = mask_a/torch.max(mask_a)
-        # nonzero = (torch.nonzero(mask_a)).type(dtype_long)
-        # uv_a_vec = (nonzero[:,1], nonzero[:,0])
+        else:
+            #raise NameError('Do you want to use option B?')
+            mask_a = img_a_mask.squeeze(0)
+            mask_a = mask_a/torch.max(mask_a)
+            nonzero = (torch.nonzero(mask_a)).type(dtype_long)
+            uv_a_vec = (nonzero[:,1], nonzero[:,0])
 
         # Always use this line        
         uv_a_vec_flattened = uv_a_vec[1]*image_width+uv_a_vec[0]
