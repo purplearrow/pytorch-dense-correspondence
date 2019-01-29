@@ -74,7 +74,8 @@ class DCNEvaluationPandaTemplate(PandaDataFrameWrapper):
             'fraction_pixels_closer_than_ground_truth',
             'fraction_pixels_closer_than_ground_truth_masked',
             'average_l2_distance_for_false_positives',
-            'average_l2_distance_for_false_positives_masked']
+            'average_l2_distance_for_false_positives_masked',
+            'error_flow']
 
     def __init__(self):
         PandaDataFrameWrapper.__init__(self, DCNEvaluationPandaTemplate.columns)
@@ -348,7 +349,7 @@ class DenseCorrespondenceEvaluation(object):
 
 
     @staticmethod
-    def evaluate_network(dcn, dataset, num_image_pairs=25, num_matches_per_image_pair=100):
+    def evaluate_network(dcn, dataset, num_image_pairs=25, num_matches_per_image_pair=100, filter_by_flow=False):
         """
 
         :param nn: A neural network DenseCorrespondenceNetwork
@@ -384,12 +385,21 @@ class DenseCorrespondenceEvaluation(object):
 
             img_idx_a, img_idx_b = idx_pair
 
-            dataframe_list_temp =\
-                DCE.single_same_scene_image_pair_quantitative_analysis(dcn, dataset, scene_name,
-                                                            img_idx_a,
-                                                            img_idx_b,
-                                                            num_matches=num_matches_per_image_pair,
-                                                            debug=False)
+            dataframe_list_temp = None
+            if filter_by_flow:
+                dataframe_list_temp =\
+                    DCE.single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name,
+                                                                img_idx_a,
+                                                                img_idx_b,
+                                                                num_matches=num_matches_per_image_pair,
+                                                                debug=False)
+            else:
+                dataframe_list_temp =\
+                    DCE.single_same_scene_image_pair_quantitative_analysis(dcn, dataset, scene_name,
+                                                                img_idx_a,
+                                                                img_idx_b,
+                                                                num_matches=num_matches_per_image_pair,
+                                                                debug=False)
 
             if dataframe_list_temp is None:
                 print "no matches found, skipping"
@@ -779,9 +789,9 @@ class DenseCorrespondenceEvaluation(object):
 
         # these are Variables holding torch.FloatTensors, first grab the data, then convert to numpy
         res_a = dcn.forward_single_image_tensor(rgb_a_tensor).data.cpu().numpy()
-        #res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
         # use pre-computed instead
-        res_b = DenseCorrespondenceEvaluation.load_pre_computed_feature_map(scene_name, img_b_idx)
+        #res_b = DenseCorrespondenceEvaluation.load_pre_computed_feature_map(scene_name, img_b_idx)
 
         if camera_intrinsics_matrix is None:
             camera_intrinsics = dataset.get_camera_intrinsics(scene_name)
@@ -789,7 +799,8 @@ class DenseCorrespondenceEvaluation(object):
 
         # find correspondences
         (uv_a_vec, uv_b_vec) = correspondence_finder.batch_find_pixel_correspondences(depth_a, pose_a, depth_b, pose_b,
-                                                               device='CPU', img_a_mask=mask_a)
+                                                               device='CPU', img_a_mask=mask_a,
+                                                               use_option_a=False)
 
         if uv_a_vec is None:
             print "no matches found, returning"
@@ -838,6 +849,174 @@ class DenseCorrespondenceEvaluation(object):
 
             dataframe_list.append(pd_template.dataframe)
 
+        return dataframe_list
+
+    @staticmethod
+    def load_nf_feature(load_feature_map_folder, scene_name, img_b_idx):
+        """ load saved feature map   ex. 000001_rgbf, 000001_rgbn
+        """
+        feature_map_f_filename = os.path.join(load_feature_map_folder, scene_name, 'featuremaps_npy/'+str(img_b_idx).zfill(6)+'_rgbf_feature.npy')
+        feature_map_n_filename = os.path.join(load_feature_map_folder, scene_name, 'featuremaps_npy/'+str(img_b_idx).zfill(6)+'_rgbn_feature.npy')
+        fmp_bf_array = np.load(feature_map_f_filename)
+        fmp_bn_array = np.load(feature_map_n_filename)
+        #print(read_back.shape)
+        #print(read_back.dtype)
+        return fmp_bf_array, fmp_bn_array
+        
+    # read .flo function
+    @staticmethod
+    def read_flo(path):
+
+        flo_magic = 202021.25
+        f = open(path, 'rb') # b for binary
+        # check file
+        if np.fromfile(f, np.float32, count=1) != flo_magic:
+            raise Exception('Invalid .flo file') 
+        # read width and height
+        f.seek(4)
+        w = np.fromfile(f, np.int32, count=1)[0]
+        f.seek(8)
+        h = np.fromfile(f, np.int32, count=1)[0]
+        # read data
+        f.seek(12)
+        data = np.fromfile(f, np.float32, count=w*h*2)
+        f.close()
+        resized = np.resize(data, (h, w, 2))
+        return resized    
+
+    @staticmethod
+    def select_pixel_flow(load_flo_folder, scene_name, direct, flo_idx, pixel_idx):
+        """ load .flo and inquire the flow on pixel
+        """
+        if direct=="rgbf-rgb":
+            flow_filename = os.path.join(load_flo_folder, scene_name, direct, 'flo/'+str(flo_idx).zfill(6)+'_rgb-'+str(flo_idx).zfill(6)+'_rgbf.flo')
+            flow_field = DenseCorrespondenceEvaluation.read_flo(flow_filename)
+            flow_field = np.resize(flow_field, (480, 640, 2))
+            #print("flow field size:"+str(flow_field.shape))
+            flow_uv_bfn_pred = flow_field[pixel_idx[1],pixel_idx[0]]
+        else:
+            flow_filename = os.path.join(load_flo_folder, scene_name, direct, 'flo/'+str(flo_idx).zfill(6)+'_rgb-'+str(flo_idx).zfill(6)+'_rgbn.flo')
+            flow_field = DenseCorrespondenceEvaluation.read_flo(flow_filename)
+            flow_field = np.resize(flow_field, (480, 640, 2))
+            #print("flow field size:"+str(flow_field.shape))
+            flow_uv_bfn_pred = flow_field[pixel_idx[1],pixel_idx[0]]
+        return flow_uv_bfn_pred
+        
+    @staticmethod
+    def single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name,
+                                                img_a_idx, img_b_idx,
+                                                camera_intrinsics_matrix=None,
+                                                num_matches=100,
+                                                debug=False):
+        """
+        Quantitative analysis of a dcn on a pair of images from the same scene.
+
+        :param dcn: 
+        :type dcn: DenseCorrespondenceNetwork
+        :param dataset:
+        :type dataset: SpartanDataset
+        :param scene_name:
+        :type scene_name: str
+        :param img_a_idx:
+        :type img_a_idx: int
+        :param img_b_idx:
+        :type img_b_idx: int
+        :param camera_intrinsics_matrix: Optionally set camera intrinsics, otherwise will get it from the dataset
+        :type camera_intrinsics_matrix: 3 x 3 numpy array
+        :return: Dict with relevant data
+        :rtype:
+        """
+
+        rgb_a, depth_a, mask_a, pose_a = dataset.get_rgbd_mask_pose(scene_name, img_a_idx)
+
+        rgb_b, depth_b, mask_b, pose_b = dataset.get_rgbd_mask_pose(scene_name, img_b_idx)
+
+        depth_a = np.asarray(depth_a)
+        depth_b = np.asarray(depth_b)
+        mask_a = np.asarray(mask_a)
+        mask_b = np.asarray(mask_b)
+
+        # compute dense descriptors
+        rgb_a_tensor = dataset.rgb_image_to_tensor(rgb_a)
+        rgb_b_tensor = dataset.rgb_image_to_tensor(rgb_b)
+
+        # these are Variables holding torch.FloatTensors, first grab the data, then convert to numpy
+        res_a = dcn.forward_single_image_tensor(rgb_a_tensor).data.cpu().numpy()
+        res_b = dcn.forward_single_image_tensor(rgb_b_tensor).data.cpu().numpy()
+        # use pre-computed instead
+        #res_b = DenseCorrespondenceEvaluation.load_pre_computed_feature_map(scene_name, img_b_idx)
+
+        if camera_intrinsics_matrix is None:
+            camera_intrinsics = dataset.get_camera_intrinsics(scene_name)
+            camera_intrinsics_matrix = camera_intrinsics.K
+
+        # find correspondences
+        (uv_a_vec, uv_b_vec) = correspondence_finder.batch_find_pixel_correspondences(depth_a, pose_a, depth_b, pose_b,
+                                                               device='CPU', img_a_mask=mask_a,
+                                                               use_option_a=False)
+
+        if uv_a_vec is None:
+            print "no matches found, returning"
+            return None
+
+        load_feature_map_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+                                    'flow_errormap', 'example', 'itri_box')
+        load_res_b_f, load_res_b_n = DenseCorrespondenceEvaluation.load_nf_feature(load_feature_map_folder, scene_name, img_b_idx)
+
+
+        # container to hold a list of pandas dataframe
+        # will eventually combine them all with concat
+        dataframe_list = []
+
+        total_num_matches = len(uv_a_vec[0])
+        num_matches = min(num_matches, total_num_matches)
+        match_list = random.sample(range(0, total_num_matches), num_matches)
+
+        if debug:
+            match_list = [50]
+
+        logging_rate = 100
+
+        image_height, image_width = dcn.image_shape
+
+        DCE = DenseCorrespondenceEvaluation
+
+        all_error_flow = []
+        for i in match_list:
+            uv_a = (uv_a_vec[0][i], uv_a_vec[1][i])
+            uv_b_raw = (uv_b_vec[0][i], uv_b_vec[1][i])
+            uv_b = DCE.clip_pixel_to_image_size_and_round(uv_b_raw, image_width, image_height)
+
+            pd_template, error_flow = DCE.compute_descriptor_match_statistics_filtered(depth_a,
+                                                                  depth_b,
+                                                                  mask_a,
+                                                                  mask_b,
+                                                                  uv_a,
+                                                                  uv_b,
+                                                                  pose_a,
+                                                                  pose_b,
+                                                                  res_a,
+                                                                  res_b,
+                                                                  load_res_b_f,
+                                                                  load_res_b_n,
+                                                                  scene_name,
+                                                                  img_b_idx,
+                                                                  camera_intrinsics_matrix,
+                                                                  rgb_a=rgb_a,
+                                                                  rgb_b=rgb_b,
+                                                                  debug=debug)
+
+
+
+            pd_template.set_value('scene_name', scene_name)
+            pd_template.set_value('img_a_idx', int(img_a_idx))
+            pd_template.set_value('img_b_idx', int(img_b_idx))
+
+            #if error_flow < 10:
+            dataframe_list.append(pd_template.dataframe)
+            all_error_flow.append(error_flow)
+
+        print ("median of error_flow is %f" % np.median(np.array(all_error_flow)))
         return dataframe_list
 
     @staticmethod
@@ -1059,6 +1238,212 @@ class DenseCorrespondenceEvaluation(object):
 
 
         return pd_template
+
+    @staticmethod
+    def compute_descriptor_match_statistics_filtered(depth_a, depth_b, mask_a, mask_b, uv_a, uv_b, pose_a, pose_b,
+                                            res_a, res_b, 
+                                            load_res_b_f, load_res_b_n,
+                                            scene_name, img_b_idx,
+                                            camera_matrix, params=None,
+                                            rgb_a=None, rgb_b=None, debug=False):
+        """
+        Computes statistics of descriptor pixelwise match.
+
+        :param uv_a: a single pixel index in (u,v) coordinates, from image a
+        :type uv_a: tuple of 2 ints
+        :param uv_b: a single pixel index in (u,v) coordinates, from image b
+        :type uv_b: tuple of 2 ints
+        :param camera_matrix: camera intrinsics matrix
+        :type camera_matrix: 3 x 3 numpy array
+        :param rgb_a:
+        :type rgb_a:
+        :param rgb_b:
+        :type rgb_b:
+        :param depth_a: depth is assumed to be in mm (see conversion to meters below)
+        :type depth_a: numpy array
+        :param depth_b:
+        :type depth_b:
+        :param pose_a:
+        :type pose_a: 4 x 4 numpy array
+        :param pose_b:
+        :type pose_b:
+        :param res_a: descriptor for image a, of shape (H,W,D)
+        :type res_a: numpy array
+        :param res_b: descriptor for image b, of shape (H,W,D)
+        :type res_b: numpy array
+        :param params:
+        :type params:
+        :param debug: whether or not to print visualization
+        :type debug:
+        :return:
+        :rtype:
+        """
+
+        DCE = DenseCorrespondenceEvaluation
+
+        # compute best match
+        ## between a & b
+        uv_b_pred, best_match_diff, norm_diffs =\
+            DenseCorrespondenceNetwork.find_best_match(uv_a, res_a,
+                                                       res_b, debug=debug)
+
+        ## between a & b-1
+        uv_bf_pred, best_match_diff_a_bf, norm_diffs_a_bf =\
+            DenseCorrespondenceNetwork.find_best_match(uv_a, res_a,
+                                                       load_res_b_f, debug=debug)
+        
+        ## between a & b+1
+        uv_bn_pred, best_match_diff_a_bn, norm_diffs_a_bn =\
+            DenseCorrespondenceNetwork.find_best_match(uv_a, res_a,
+                                                       load_res_b_n, debug=debug)
+
+        # norm_diffs shape is (H,W)
+
+        # compute best match on mask only
+        mask_b_inv = 1-mask_b
+        masked_norm_diffs = norm_diffs + mask_b_inv*1e6
+
+        best_match_flattened_idx_masked = np.argmin(masked_norm_diffs)
+        best_match_xy_masked = np.unravel_index(best_match_flattened_idx_masked, masked_norm_diffs.shape)
+        best_match_diff_masked = masked_norm_diffs[best_match_xy_masked]
+        uv_b_pred_masked = (best_match_xy_masked[1], best_match_xy_masked[0])
+
+        # compute pixel space difference
+        pixel_match_error_l2 = np.linalg.norm((np.array(uv_b) - np.array(uv_b_pred)), ord=2)
+        pixel_match_error_l2_masked = np.linalg.norm((np.array(uv_b) - np.array(uv_b_pred_masked)), ord=2)
+        pixel_match_error_l1 = np.linalg.norm((np.array(uv_b) - np.array(uv_b_pred)), ord=1)
+
+        # extract the ground truth descriptors
+        des_a = res_a[uv_a[1], uv_a[0], :]
+        des_b_ground_truth = res_b[uv_b[1], uv_b[0], :]
+        norm_diff_descriptor_ground_truth = np.linalg.norm(des_a - des_b_ground_truth)
+
+        # from Schmidt et al 2017: 
+        """
+        We then determine the number of pixels in the target image that are closer in
+        descriptor space to the source point than the manually-labelled corresponding point.
+        """
+        # compute this
+        (v_indices_better_than_ground_truth, u_indices_better_than_ground_truth) = np.where(norm_diffs < norm_diff_descriptor_ground_truth)
+        num_pixels_closer_than_ground_truth = len(u_indices_better_than_ground_truth) 
+        num_pixels_in_image = res_a.shape[0] * res_a.shape[1]
+        fraction_pixels_closer_than_ground_truth = num_pixels_closer_than_ground_truth*1.0/num_pixels_in_image
+
+        (v_indices_better_than_ground_truth_masked, u_indices_better_than_ground_truth_masked) = np.where(masked_norm_diffs < norm_diff_descriptor_ground_truth)
+        num_pixels_closer_than_ground_truth_masked = len(u_indices_better_than_ground_truth_masked) 
+        num_pixels_in_masked_image = len(np.nonzero(mask_b)[0])
+        fraction_pixels_closer_than_ground_truth_masked = num_pixels_closer_than_ground_truth_masked*1.0/num_pixels_in_masked_image
+
+        # new metric: average l2 distance of the pixels better than ground truth
+        if num_pixels_closer_than_ground_truth == 0:
+            average_l2_distance_for_false_positives = 0.0
+        else:
+            l2_distances = np.sqrt((u_indices_better_than_ground_truth - uv_b[0])**2 + (v_indices_better_than_ground_truth - uv_b[1])**2)
+            average_l2_distance_for_false_positives = np.average(l2_distances)
+
+        # new metric: average l2 distance of the pixels better than ground truth
+        if num_pixels_closer_than_ground_truth_masked == 0:
+            average_l2_distance_for_false_positives_masked = 0.0
+        else:
+            l2_distances_masked = np.sqrt((u_indices_better_than_ground_truth_masked - uv_b[0])**2 + (v_indices_better_than_ground_truth_masked - uv_b[1])**2)
+            average_l2_distance_for_false_positives_masked = np.average(l2_distances_masked)
+
+        # extract depth values, note the indexing order of u,v has to be reversed
+        uv_a_depth = depth_a[uv_a[1], uv_a[0]] / DEPTH_IM_SCALE # check if this is not None
+        uv_b_depth = depth_b[uv_b[1], uv_b[0]] / DEPTH_IM_SCALE
+        uv_b_pred_depth = depth_b[uv_b_pred[1], uv_b_pred[0]] / DEPTH_IM_SCALE
+        uv_b_pred_depth_is_valid = DenseCorrespondenceEvaluation.is_depth_valid(uv_b_pred_depth)
+        uv_b_pred_depth_masked = depth_b[uv_b_pred_masked[1], uv_b_pred_masked[0]] / DEPTH_IM_SCALE
+        uv_b_pred_depth_is_valid_masked = DenseCorrespondenceEvaluation.is_depth_valid(uv_b_pred_depth_masked)
+        is_valid = uv_b_pred_depth_is_valid
+        is_valid_masked = uv_b_pred_depth_is_valid_masked
+
+        uv_a_pos = DCE.compute_3d_position(uv_a, uv_a_depth, camera_matrix, pose_a)
+        uv_b_pos = DCE.compute_3d_position(uv_b, uv_b_depth, camera_matrix, pose_b)
+        uv_b_pred_pos = DCE.compute_3d_position(uv_b_pred, uv_b_pred_depth, camera_matrix, pose_b)
+        uv_b_pred_pos_masked = DCE.compute_3d_position(uv_b_pred_masked, uv_b_pred_depth_masked, camera_matrix, pose_b)
+
+        diff_ground_truth_3d = uv_b_pos - uv_a_pos
+
+        diff_pred_3d = uv_b_pos - uv_b_pred_pos
+        diff_pred_3d_masked = uv_b_pos - uv_b_pred_pos_masked
+
+        if DCE.is_depth_valid(uv_b_depth):
+            norm_diff_ground_truth_3d = np.linalg.norm(diff_ground_truth_3d)
+        else:
+            norm_diff_ground_truth_3d = np.nan
+
+        if DCE.is_depth_valid(uv_b_depth) and DCE.is_depth_valid(uv_b_pred_depth):
+            norm_diff_pred_3d = np.linalg.norm(diff_pred_3d)
+        else:
+            norm_diff_pred_3d = np.nan
+
+        if DCE.is_depth_valid(uv_b_depth) and DCE.is_depth_valid(uv_b_pred_depth_masked):
+            norm_diff_pred_3d_masked = np.linalg.norm(diff_pred_3d_masked)
+        else:
+            norm_diff_pred_3d_masked = np.nan
+
+        if debug:
+
+            fig, axes = correspondence_plotter.plot_correspondences_direct(rgb_a, depth_a, rgb_b, depth_b,
+                                                               uv_a, uv_b, show=False)
+
+            correspondence_plotter.plot_correspondences_direct(rgb_a, depth_a, rgb_b, depth_b,
+                                                               uv_a, uv_b_pred,
+                                                               use_previous_plot=(fig, axes),
+                                                               show=True,
+                                                               circ_color='purple')
+
+        # compute flow(uv_bf_pred) & flow(uv_b_pred)
+        load_flo_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+                                    'flow_errormap', 'example', 'inference', 'itri_box')
+        flow_uv_bf_pred = DenseCorrespondenceEvaluation.select_pixel_flow(load_flo_folder, scene_name, 'rgbf-rgb', img_b_idx, uv_bf_pred)
+        flow_uv_b_pred = DenseCorrespondenceEvaluation.select_pixel_flow(load_flo_folder, scene_name, 'rgb-rgbn', img_b_idx, uv_b_pred)
+
+        # compute predicted point distance transformation. (uv_b_pred - uv_bf_pred) & (uv_bn_pred - uv_b_pred)
+        dist_b_bf = np.zeros(2, np.float64)
+        dist_bn_b = np.zeros(2, np.float64)
+        dist_b_bf[0] = uv_b_pred[0] - uv_bf_pred[0]
+        dist_b_bf[1] = uv_b_pred[1] - uv_bf_pred[1]
+        dist_bn_b[0] = uv_bn_pred[0] - uv_b_pred[0]
+        dist_bn_b[1] = uv_bn_pred[1] - uv_b_pred[1]
+
+        error_flow = 0.5*np.linalg.norm(flow_uv_bf_pred - dist_b_bf)+0.5*np.linalg.norm(flow_uv_b_pred - dist_bn_b)
+
+
+        pd_template = DCNEvaluationPandaTemplate()
+        pd_template.set_value('norm_diff_descriptor', best_match_diff)
+        pd_template.set_value('norm_diff_descriptor_masked', best_match_diff_masked)
+        pd_template.set_value('is_valid', is_valid)
+        pd_template.set_value('is_valid_masked', is_valid_masked)
+
+        pd_template.set_value('norm_diff_ground_truth_3d', norm_diff_ground_truth_3d)
+
+        if is_valid:
+            pd_template.set_value('norm_diff_pred_3d', norm_diff_pred_3d)
+        else:
+            pd_template.set_value('norm_diff_pred_3d', np.nan)
+
+        if is_valid_masked:
+            pd_template.set_value('norm_diff_pred_3d_masked', norm_diff_pred_3d_masked)
+        else:
+            pd_template.set_value('norm_diff_pred_3d_masked', np.nan)
+
+        pd_template.set_value('norm_diff_descriptor_ground_truth', norm_diff_descriptor_ground_truth)
+
+        pd_template.set_value('pixel_match_error_l2', pixel_match_error_l2)
+        pd_template.set_value('pixel_match_error_l2_masked', pixel_match_error_l2_masked)
+        pd_template.set_value('pixel_match_error_l1', pixel_match_error_l1)
+
+        pd_template.set_value('fraction_pixels_closer_than_ground_truth', fraction_pixels_closer_than_ground_truth)
+        pd_template.set_value('fraction_pixels_closer_than_ground_truth_masked', fraction_pixels_closer_than_ground_truth_masked)
+        pd_template.set_value('average_l2_distance_for_false_positives', average_l2_distance_for_false_positives)
+        pd_template.set_value('average_l2_distance_for_false_positives_masked', average_l2_distance_for_false_positives_masked)
+
+        pd_template.set_value('error_flow', error_flow)
+
+
+        return pd_template, error_flow
 
     @staticmethod
     def compute_3d_position(uv, depth, camera_intrinsics_matrix, camera_to_world):
@@ -1982,7 +2367,8 @@ class DenseCorrespondenceEvaluation(object):
                                   save_folder_name="analysis",
                                   compute_descriptor_statistics=True, 
                                   cross_scene=True,
-                                  dataset=None):
+                                  dataset=None,
+                                  filter_by_flow=False):
         """
         Runs all the quantitative evaluations on the model folder
         Creates a folder model_folder/analysis that stores the information.
@@ -2034,7 +2420,8 @@ class DenseCorrespondenceEvaluation(object):
         logging.info("Evaluating network on train data")
         dataset.set_train_mode()
         pd_dataframe_list, df = DCE.evaluate_network(dcn, dataset, num_image_pairs=num_image_pairs,
-                                                     num_matches_per_image_pair=num_matches_per_image_pair)
+                                                     num_matches_per_image_pair=num_matches_per_image_pair,
+                                                     filter_by_flow=filter_by_flow)
 
         train_csv = os.path.join(train_output_dir, "data.csv")
         df.to_csv(train_csv)
@@ -2042,7 +2429,8 @@ class DenseCorrespondenceEvaluation(object):
         logging.info("Evaluating network on test data")
         dataset.set_test_mode()
         pd_dataframe_list, df = DCE.evaluate_network(dcn, dataset, num_image_pairs=num_image_pairs,
-                                                     num_matches_per_image_pair=num_matches_per_image_pair)
+                                                     num_matches_per_image_pair=num_matches_per_image_pair,
+                                                     filter_by_flow=filter_by_flow)
 
         test_csv = os.path.join(test_output_dir, "data.csv")
         df.to_csv(test_csv)
@@ -2481,7 +2869,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
         return area_above_curve
 
     @staticmethod
-    def run_on_single_dataframe(path_to_df_csv, label=None, output_dir=None, save=True, previous_fig_axes=None):
+    def run_on_single_dataframe(path_to_df_csv, label=None, output_dir=None, save=True, previous_fig_axes=None, filter_by_flow=False):
         """
         This method is intended to be called from an ipython notebook for plotting.
 
@@ -2517,6 +2905,10 @@ class DenseCorrespondenceEvaluationPlotter(object):
             output_dir = os.path.dirname(path_to_csv)
 
         df = pd.read_csv(path_to_csv, index_col=0, parse_dates=True)
+        if filter_by_flow:
+            med = df['error_flow'].median()
+            print ("threshold = %f" % med)
+            df = df[df.error_flow < med]
 
         if 'is_valid_masked' not in df:
             use_masked_plots = False
