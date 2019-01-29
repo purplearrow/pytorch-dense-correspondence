@@ -2707,7 +2707,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
             ax.set_xlabel('Pixel match error (masked), L2 (pixel distance)')
         else:
             ax.set_xlabel('Pixel match error (fraction of image), L2 (pixel distance)')
-        ax.set_ylabel('Fraction of images')
+        ax.set_ylabel('Fraction of points')
 
         # ax.set_xlim([0,200])
         return plot
@@ -2761,7 +2761,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
             ax.set_xlabel('3D match error (masked), L2 (cm)')
         else:
             ax.set_xlabel('3D match error, L2 (cm)')
-        ax.set_ylabel('Fraction of images')
+        ax.set_ylabel('Fraction of points')
         #ax.set_title("3D Norm Diff Best Match")
         return plot
 
@@ -2782,7 +2782,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
         
         plot = DCEP.make_cdf_plot(ax, data, num_bins=num_bins, label=label)
         ax.set_xlabel('Descriptor match error, L2')
-        ax.set_ylabel('Fraction of images')
+        ax.set_ylabel('Fraction of points')
         return plot
 
     @staticmethod
@@ -2812,7 +2812,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
         else:
             ax.set_xlabel('Fraction false positives')    
 
-        ax.set_ylabel('Fraction of images')
+        ax.set_ylabel('Fraction of points')
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])
         return plot
@@ -2842,7 +2842,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
             ax.set_xlabel('Average l2 pixel distance for false positives (masked)')
         else:
             ax.set_xlabel('Average l2 pixel distance for false positives')
-        ax.set_ylabel('Fraction of images')
+        ax.set_ylabel('Fraction of points')
         # ax.set_xlim([0,200])
         return plot
 
@@ -2869,7 +2869,8 @@ class DenseCorrespondenceEvaluationPlotter(object):
         return area_above_curve
 
     @staticmethod
-    def run_on_single_dataframe(path_to_df_csv, label=None, output_dir=None, save=True, previous_fig_axes=None, filter_by_flow=False):
+    def run_on_single_dataframe(path_to_df_csv, label=None, output_dir=None, save=True, previous_fig_axes=None,
+                                filter_by_flow=False, filter_thresholds=None):
         """
         This method is intended to be called from an ipython notebook for plotting.
 
@@ -2905,10 +2906,14 @@ class DenseCorrespondenceEvaluationPlotter(object):
             output_dir = os.path.dirname(path_to_csv)
 
         df = pd.read_csv(path_to_csv, index_col=0, parse_dates=True)
+        df_filters = []
         if filter_by_flow:
-            med = df['error_flow'].median()
-            print ("threshold = %f" % med)
-            df = df[df.error_flow < med]
+            if not filter_thresholds:
+                th = df['error_flow'].median()
+                print ("threshold = %f" % th)
+                filter_thresholds = [th]
+            for th in filter_thresholds:
+                df_filters.append(df[df.error_flow < th])
 
         if 'is_valid_masked' not in df:
             use_masked_plots = False
@@ -2936,15 +2941,25 @@ class DenseCorrespondenceEvaluationPlotter(object):
         ax = get_ax(axes, 0)
         plot = DCEP.make_pixel_match_error_plot(ax, df, label=label)
         if use_masked_plots:
-            plot = DCEP.make_pixel_match_error_plot(axes[0,1], df, label=label, masked=True)
+            #plot = DCEP.make_pixel_match_error_plot(axes[0,1], df, label=label, masked=True)
+            plot = DCEP.make_pixel_match_error_plot(ax, df, label=label+"_mask", masked=True)
+        if filter_by_flow:
+            for idx, th in enumerate(filter_thresholds):
+                label_name = "%s_flow_%4.2f" % (label, th)
+                plot = DCEP.make_pixel_match_error_plot(ax, df_filters[idx], label=label_name, masked=False)
         ax.legend()
        
         # 3D match error
         ax = get_ax(axes, 1)
         plot = DCEP.make_descriptor_accuracy_plot(ax, df, label=label)
         if use_masked_plots:
-            plot = DCEP.make_descriptor_accuracy_plot(axes[1,1], df, label=label, masked=True)            
-
+            #plot = DCEP.make_descriptor_accuracy_plot(axes[1,1], df, label=label, masked=True)            
+            plot = DCEP.make_descriptor_accuracy_plot(ax, df, label=label+"_mask", masked=True)            
+        if filter_by_flow:
+            for idx, th in enumerate(filter_thresholds):
+                label_name = "%s_flow_%4.2f" % (label, th)
+                plot = DCEP.make_descriptor_accuracy_plot(ax, df_filters[idx], label=label_name, masked=False)            
+        ax.legend()
 
         # if save:
         #     fig_file = os.path.join(output_dir, "norm_diff_pred_3d.png")
@@ -2957,18 +2972,35 @@ class DenseCorrespondenceEvaluationPlotter(object):
         # norm difference of the ground truth match (should be 0)
         ax = get_ax(axes,2)
         plot = DCEP.make_norm_diff_ground_truth_plot(ax, df, label=label)
+        if filter_by_flow:
+            for idx, th in enumerate(filter_thresholds):
+                label_name = "%s_flow_%4.2f" % (label, th)
+                plot = DCEP.make_norm_diff_ground_truth_plot(ax, df_filters[idx], label=label_name)
+        ax.legend()
 
         # fraction false positives
         ax = get_ax(axes,3)
         plot = DCEP.make_fraction_false_positives_plot(ax, df, label=label)
         if use_masked_plots:
-            plot = DCEP.make_fraction_false_positives_plot(axes[3,1], df, label=label, masked=True)
+            #plot = DCEP.make_fraction_false_positives_plot(axes[3,1], df, label=label, masked=True)
+            plot = DCEP.make_fraction_false_positives_plot(ax, df, label=label+"_mask", masked=True)
+        if filter_by_flow:
+            for idx, th in enumerate(filter_thresholds):
+                label_name = "%s_flow_%4.2f" % (label, th)
+                plot = DCEP.make_fraction_false_positives_plot(ax, df_filters[idx], label=label_name, masked=False)
+        ax.legend()
 
         # average l2 false positives
         ax = get_ax(axes, 4)
         plot = DCEP.make_average_l2_false_positives_plot(ax, df, label=label)
         if use_masked_plots:
-            plot = DCEP.make_average_l2_false_positives_plot(axes[4,1], df, label=label, masked=True)
+            #plot = DCEP.make_average_l2_false_positives_plot(axes[4,1], df, label=label, masked=True)
+            plot = DCEP.make_average_l2_false_positives_plot(ax, df, label=label+"_mask", masked=True)
+        if filter_by_flow:
+            for idx, th in enumerate(filter_thresholds):
+                label_name = "%s_flow_%4.2f" % (label, th)
+                plot = DCEP.make_average_l2_false_positives_plot(ax, df_filters[idx], label=label_name, masked=False)
+        ax.legend()
 
         yaml_file = os.path.join(output_dir, 'stats.yaml')
         utils.saveToYaml(d, yaml_file)
