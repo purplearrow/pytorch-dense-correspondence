@@ -1,0 +1,10 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "itri_bottle"
+train:
+- "2019-03-04-16-34-44"
+- "2019-03-04-16-44-35"
+
+test:
+- "2019-03-04-16-19-57"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/itri_bottle_not_yet_configure.yaml"

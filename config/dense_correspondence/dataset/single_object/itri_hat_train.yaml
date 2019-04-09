@@ -1,0 +1,9 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "itri_hat"
+train:
+- "2019-02-27-18-08-17"
+
+test:
+- "2019-02-27-17-44-22"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/itri_hat_not_yet_configure.yaml"

@@ -1,0 +1,10 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "itri_giraffe"
+train:
+- "2019-03-04-12-56-24"
+- "2019-03-04-13-02-41"
+test:
+- "2019-02-27-18-49-54"
+- "2019-03-04-13-08-29"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/itri_giraffe_not_yet_configure.yaml"

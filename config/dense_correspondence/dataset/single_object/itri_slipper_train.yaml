@@ -1,0 +1,10 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "itri_slipper"
+train:
+- "2019-03-04-15-07-46"
+- "2019-03-04-15-17-07"
+
+test:
+- "2019-03-04-14-58-24"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/itri_slipper_not_yet_configure.yaml"

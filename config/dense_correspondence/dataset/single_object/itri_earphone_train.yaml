@@ -1,0 +1,10 @@
+logs_root_path: code/data_volume/pdc/logs_proto
+object_id: "itri_earphone"
+train:
+- "2019-03-04-17-22-58"
+- "2019-03-04-17-27-15"
+
+test:
+- "2019-03-04-17-14-10"
+evaluation_labeled_data_path: 
+- "code/data_volume/pdc/evaluation_labeled_data/itri_earphone_not_yet_configure.yaml"
