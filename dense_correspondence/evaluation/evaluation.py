@@ -2704,10 +2704,11 @@ class DenseCorrespondenceEvaluationPlotter(object):
 
         plot = DCEP.make_cdf_plot(ax, data, num_bins=num_bins, label=label, x_axis_scale_factor=x_axis_scale_factor)
         if masked:
-            ax.set_xlabel('Pixel match error (masked), L2 (pixel distance)')
+            ax.set_xlabel('Pixel match error (masked), L2 (pixel distance)', fontsize=14)
         else:
-            ax.set_xlabel('Pixel match error (fraction of image), L2 (pixel distance)')
-        ax.set_ylabel('Fraction of points')
+            ax.set_xlabel('Pixel match error (fraction of image), L2 (pixel distance)', fontsize=14)
+        ax.set_ylabel('Fraction of points', fontsize=14)
+        ax.tick_params(axis='both', which='major', labelsize=14)
 
         # ax.set_xlim([0,200])
         return plot
@@ -2808,11 +2809,13 @@ class DenseCorrespondenceEvaluationPlotter(object):
         plot = DCEP.make_cdf_plot(ax, data, num_bins=num_bins, label=label)
         
         if masked:
-            ax.set_xlabel('Fraction false positives (masked)')
+            ax.set_xlabel('Fraction false positives (masked)', fontsize=14)
         else:
-            ax.set_xlabel('Fraction false positives')    
+            ax.set_xlabel('Fraction false positives', fontsize=14)
 
-        ax.set_ylabel('Fraction of points')
+        ax.set_ylabel('Fraction of points', fontsize=14)
+        ax.tick_params(axis='both', which='major', labelsize=14)
+
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])
         return plot
@@ -2947,7 +2950,7 @@ class DenseCorrespondenceEvaluationPlotter(object):
             for idx, th in enumerate(filter_thresholds):
                 label_name = "%s_flow_%4.2f" % (label, th)
                 plot = DCEP.make_pixel_match_error_plot(ax, df_filters[idx], label=label_name, masked=False)
-        ax.legend()
+        ax.legend(prop={'size': 14})
        
         # 3D match error
         ax = get_ax(axes, 1)
@@ -2981,14 +2984,15 @@ class DenseCorrespondenceEvaluationPlotter(object):
         # fraction false positives
         ax = get_ax(axes,3)
         plot = DCEP.make_fraction_false_positives_plot(ax, df, label=label)
-        if use_masked_plots:
+        #if use_masked_plots:
             #plot = DCEP.make_fraction_false_positives_plot(axes[3,1], df, label=label, masked=True)
-            plot = DCEP.make_fraction_false_positives_plot(ax, df, label=label+"_mask", masked=True)
+            #plot = DCEP.make_fraction_false_positives_plot(ax, df, label=label+"_mask", masked=True)
         if filter_by_flow:
             for idx, th in enumerate(filter_thresholds):
                 label_name = "%s_flow_%4.2f" % (label, th)
                 plot = DCEP.make_fraction_false_positives_plot(ax, df_filters[idx], label=label_name, masked=False)
-        ax.legend()
+                ax.set_xlim(0, 0.5)
+        ax.legend(prop={'size': 14}, loc=4)
 
         # average l2 false positives
         ax = get_ax(axes, 4)
