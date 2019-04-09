@@ -16,6 +16,7 @@ import torch
 from torch.autograd import Variable
 from torchvision import transforms
 
+from PIL import Image
 
 from dense_correspondence_manipulation.utils.constants import *
 from dense_correspondence_manipulation.utils.utils import CameraIntrinsics
@@ -349,7 +350,7 @@ class DenseCorrespondenceEvaluation(object):
 
 
     @staticmethod
-    def evaluate_network(dcn, dataset, num_image_pairs=25, num_matches_per_image_pair=100, filter_by_flow=False):
+    def evaluate_network(dcn, dataset, num_image_pairs=25, num_matches_per_image_pair=100, filter_by_flow=False, model_name="NotDefinedModelName"):
         """
 
         :param nn: A neural network DenseCorrespondenceNetwork
@@ -388,7 +389,7 @@ class DenseCorrespondenceEvaluation(object):
             dataframe_list_temp = None
             if filter_by_flow:
                 dataframe_list_temp =\
-                    DCE.single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name,
+                    DCE.single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name, model_name,
                                                                 img_idx_a,
                                                                 img_idx_b,
                                                                 num_matches=num_matches_per_image_pair,
@@ -852,6 +853,19 @@ class DenseCorrespondenceEvaluation(object):
         return dataframe_list
 
     @staticmethod
+    def load_adjacent_Frames(scene_name, img_idx):
+	""" load previous and next frame   ex. 000001_rgbf.png, 000001_rgbn.png
+	"""
+        matched_frame_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+                                    'logs_proto', scene_name, 'processed', 'matched_frames')
+        prev_rgb_filename = os.path.join(matched_frame_folder, str(img_idx).zfill(6)+'_rgbf.png')
+        rgb_f = Image.open(prev_rgb_filename).convert('RGB')
+
+        next_rgb_filename = os.path.join(matched_frame_folder, str(img_idx).zfill(6)+'_rgbn.png')
+        rgb_n = Image.open(next_rgb_filename).convert('RGB')
+        return rgb_f, rgb_n
+
+    @staticmethod
     def load_nf_feature(load_feature_map_folder, scene_name, img_b_idx):
         """ load saved feature map   ex. 000001_rgbf, 000001_rgbn
         """
@@ -863,6 +877,8 @@ class DenseCorrespondenceEvaluation(object):
         #print(read_back.dtype)
         return fmp_bf_array, fmp_bn_array
         
+
+
     # read .flo function
     @staticmethod
     def read_flo(path):
@@ -903,7 +919,7 @@ class DenseCorrespondenceEvaluation(object):
         return flow_uv_bfn_pred
         
     @staticmethod
-    def single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name,
+    def single_same_scene_image_pair_quantitative_analysis_filtered(dcn, dataset, scene_name, model_name,
                                                 img_a_idx, img_b_idx,
                                                 camera_intrinsics_matrix=None,
                                                 num_matches=100,
@@ -959,9 +975,18 @@ class DenseCorrespondenceEvaluation(object):
             print "no matches found, returning"
             return None
 
-        load_feature_map_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
-                                    'flow_errormap', 'example', 'itri_box')
-        load_res_b_f, load_res_b_n = DenseCorrespondenceEvaluation.load_nf_feature(load_feature_map_folder, scene_name, img_b_idx)
+        # compute dense descriptors of prev/next frames
+        rgb_b_f, rgb_b_n = DenseCorrespondenceEvaluation.load_adjacent_Frames(scene_name, img_b_idx)
+
+        rgb_b_f_tensor = dataset.rgb_image_to_tensor(rgb_b_f)
+        rgb_b_n_tensor = dataset.rgb_image_to_tensor(rgb_b_n)
+
+        res_b_f = dcn.forward_single_image_tensor(rgb_b_f_tensor).data.cpu().numpy()
+        res_b_n = dcn.forward_single_image_tensor(rgb_b_n_tensor).data.cpu().numpy()
+
+        #load_feature_map_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
+        #                            'flow', model_name)
+        #load_res_b_f, load_res_b_n = DenseCorrespondenceEvaluation.load_nf_feature(load_feature_map_folder, scene_name, img_b_idx)
 
 
         # container to hold a list of pandas dataframe
@@ -997,10 +1022,11 @@ class DenseCorrespondenceEvaluation(object):
                                                                   pose_b,
                                                                   res_a,
                                                                   res_b,
-                                                                  load_res_b_f,
-                                                                  load_res_b_n,
+                                                                  res_b_f,
+                                                                  res_b_n,
                                                                   scene_name,
                                                                   img_b_idx,
+                                                                  model_name,
                                                                   camera_intrinsics_matrix,
                                                                   rgb_a=rgb_a,
                                                                   rgb_b=rgb_b,
@@ -1244,6 +1270,7 @@ class DenseCorrespondenceEvaluation(object):
                                             res_a, res_b, 
                                             load_res_b_f, load_res_b_n,
                                             scene_name, img_b_idx,
+                                            model_name,
                                             camera_matrix, params=None,
                                             rgb_a=None, rgb_b=None, debug=False):
         """
@@ -1396,7 +1423,7 @@ class DenseCorrespondenceEvaluation(object):
 
         # compute flow(uv_bf_pred) & flow(uv_b_pred)
         load_flo_folder = os.path.join(utils.getDenseCorrespondenceSourceDir(), 'data_volume', 'pdc',
-                                    'flow_errormap', 'example', 'inference', 'itri_box')
+                                    'flow', model_name)
         flow_uv_bf_pred = DenseCorrespondenceEvaluation.select_pixel_flow(load_flo_folder, scene_name, 'rgbf-rgb', img_b_idx, uv_bf_pred)
         flow_uv_b_pred = DenseCorrespondenceEvaluation.select_pixel_flow(load_flo_folder, scene_name, 'rgb-rgbn', img_b_idx, uv_b_pred)
 
@@ -2368,7 +2395,8 @@ class DenseCorrespondenceEvaluation(object):
                                   compute_descriptor_statistics=True, 
                                   cross_scene=True,
                                   dataset=None,
-                                  filter_by_flow=False):
+                                  filter_by_flow=False,
+                                  model_name="NotDefinedModelName"):
         """
         Runs all the quantitative evaluations on the model folder
         Creates a folder model_folder/analysis that stores the information.
@@ -2421,7 +2449,7 @@ class DenseCorrespondenceEvaluation(object):
         dataset.set_train_mode()
         pd_dataframe_list, df = DCE.evaluate_network(dcn, dataset, num_image_pairs=num_image_pairs,
                                                      num_matches_per_image_pair=num_matches_per_image_pair,
-                                                     filter_by_flow=filter_by_flow)
+                                                     filter_by_flow=filter_by_flow,model_name=model_name)
 
         train_csv = os.path.join(train_output_dir, "data.csv")
         df.to_csv(train_csv)
@@ -2430,7 +2458,7 @@ class DenseCorrespondenceEvaluation(object):
         dataset.set_test_mode()
         pd_dataframe_list, df = DCE.evaluate_network(dcn, dataset, num_image_pairs=num_image_pairs,
                                                      num_matches_per_image_pair=num_matches_per_image_pair,
-                                                     filter_by_flow=filter_by_flow)
+                                                     filter_by_flow=filter_by_flow,model_name=model_name)
 
         test_csv = os.path.join(test_output_dir, "data.csv")
         df.to_csv(test_csv)
